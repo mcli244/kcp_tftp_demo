@@ -60,3 +60,5 @@ if(BUILD_TESTING)
         target_compile_options(kcp_test PRIVATE /utf-8)
     endif()
 endif()
+
+add_subdirectory(test)
