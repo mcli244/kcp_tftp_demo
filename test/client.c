@@ -55,7 +55,7 @@ int udp_output(const char *buf, int len, ikcpcb *kcp, void *user)
     UP3D_Client_Ctx_Type *cctx = (UP3D_Client_Ctx_Type *)user;
 
     cnt += len;
-    _LOG(_LOG_DEBUG, "%02d: udp_output len:%d cnt:%d\n", index++, len, cnt);
+    _LOG(_LOG_DEBUG, "%02d: udp_output len:%d cnt:%d", index++, len, cnt);
     return sendto(cctx->sfd, buf, len, 0, (struct sockaddr*)&cctx->server_addr, slen);
 }
 
@@ -69,7 +69,7 @@ int socket_creat(char *s_ip, int s_port)
         exit(EXIT_FAILURE);
     }
 
-    printf("server:%s:%d\n", s_ip, s_port);
+    printf("server:%s:%d", s_ip, s_port);
     memset(&cctx.server_addr, 0, sizeof(cctx.server_addr));
     cctx.server_addr.sin_family = AF_INET;
     cctx.server_addr.sin_addr.s_addr = inet_addr(s_ip);
@@ -95,7 +95,7 @@ int socket_creat(char *s_ip, int s_port)
 void *recv_process(void *arg)
 {
     int len, remote_len, ret, n;
-    uint8_t buf[1024];
+    uint8_t buf[8*1024];
     struct sockaddr_in remote_addr;
     
     UP3D_Client_Ctx_Type *cctx = (UP3D_Client_Ctx_Type *)arg;
@@ -120,7 +120,7 @@ void *recv_process(void *arg)
                 if (n < 0) {
                     break;
                 } else {
-                    _LOG(_LOG_DEBUG, "received data from client: %d bytes ret:%d \n", n, ret);
+                    _LOG(_LOG_DEBUG, "received data from client: %d bytes ret:%d ", n, ret);
                 }
             }
         }
@@ -132,7 +132,8 @@ void *recv_process(void *arg)
 void *send_process(void *arg)
 {
     int len, ret, n;
-    uint8_t buf[1024];
+    uint8_t buf[100*1024];
+    uint8_t test_buf[4096];
     char msg[256];
     int pyload_cnt = 0, kcp_raw_cnt = 0, send_cnt = 0;
     UP3D_Client_Ctx_Type *cctx = (UP3D_Client_Ctx_Type *)arg;
@@ -147,25 +148,46 @@ void *send_process(void *arg)
 
     set_nonblocking(STDIN_FILENO);
 
-    _LOG(_LOG_INFO, "send_process start");
+    _LOG(_LOG_INFO, "send_process start file:[%s]", cctx->file_name);
     while(cctx->sys_runing)
     {
         if(fgets(msg , sizeof(msg) , stdin) != NULL)
         {
-            _LOG(_LOG_INFO, "msg:[%s]\n", msg);
+            _LOG(_LOG_INFO, "msg:[%s]", msg);
             if(strcmp(msg , "send\n") == 0)
             {
                 fseek(file, 0, SEEK_SET);
+
+                // 1. 发送文件名称
+                memset(buf, 0, sizeof(buf));
+                buf[0] = 0x01;
+                buf[1] = 0x00;
+                n = sprintf(buf+2, "%s", cctx->file_name);
+                ret = ikcp_send(cctx->kcp, buf, n+3);
+
                 pyload_cnt = 0;
                 send_cnt = 0;
                 while (1) {
-                    n = fread(buf, 1, sizeof(buf), file);
+                    buf[0] = 0x03;
+                    buf[1] = 0x00;
+                    n = fread(buf+2, 1, sizeof(buf) - 2, file);
                     if(n <= 0)  break;
-                    ret = ikcp_send(cctx->kcp, buf, n);
+                    ret = ikcp_send(cctx->kcp, buf, n + 2);
                     pyload_cnt += n;
                     send_cnt ++;
                 }
-                _LOG(_LOG_INFO, "n:%d ret:%d send_cnt:%d pyload_cnt:%d \n", n, ret, send_cnt, pyload_cnt);
+                // 3. 发送完成
+                memset(buf, 0, sizeof(buf));
+                buf[0] = 0x04;
+                buf[1] = 0x00;
+                n = sprintf(buf+2, "%s", cctx->file_name);
+                ret = ikcp_send(cctx->kcp, buf, n+3);
+                _LOG(_LOG_INFO, "n:%d ret:%d send_cnt:%d pyload_cnt:%d ", n, ret, send_cnt, pyload_cnt);
+            }
+            else if(strcmp(msg , "test\n") == 0)
+            {
+                ret = ikcp_send(cctx->kcp, test_buf, sizeof(test_buf));
+                _LOG(_LOG_INFO, "test buf ret:%d", ret);
             }
             else if(strcmp(msg , "q\n") == 0)
             {
@@ -186,10 +208,10 @@ int main(int argc, char **argv)
     int ret, len;
     uint32_t conv = KCP_CONV; // 这里需要和服务端保持一致
 
-    _LOG(_LOG_INFO, "test client\n");
+    _LOG(_LOG_INFO, "test client");
     if(argc != 4)
     {
-        _LOG(_LOG_ERR, "Usage: %s ip port filename\n", argv[0]);
+        _LOG(_LOG_ERR, "Usage: %s ip port filename", argv[0]);
         exit(EXIT_FAILURE);
     }
 
@@ -199,6 +221,7 @@ int main(int argc, char **argv)
     
     cctx.kcp = ikcp_create(conv, (void *)&cctx);
     cctx.kcp->output = udp_output;
+    cctx.kcp->mtu = 65535;
     ikcp_nodelay(cctx.kcp, 1, 10, 2, 1);
     ikcp_update(cctx.kcp, 0);   // 必须要调这个
     
@@ -229,6 +252,6 @@ int main(int argc, char **argv)
 err:
     ikcp_release(cctx.kcp);
     close(cctx.sfd);
-    _LOG(_LOG_INFO, "exit\n");
+    _LOG(_LOG_INFO, "exit");
     return 0;
 }

@@ -30,7 +30,7 @@ int udp_output(const char *buf, int len, ikcpcb *kcp, void *user)
     struct sockaddr_in server_addr;
     int client_len = sizeof(struct sockaddr_in);
     
-    _LOG(_LOG_DEBUG, "udp_output len:%d cnt:%d\n", len, cnt++);
+    _LOG(_LOG_DEBUG, "udp_output len:%d cnt:%d", len, cnt++);
     return sendto(sockfd, buf, len, 0, (struct sockaddr*)&client_addr, client_len);
 }
 
@@ -53,13 +53,14 @@ int make_socket_non_blocking(int sockfd)
 int main()
 {
     int sockfd, len, client_len;
+    FILE *file;
     uint32_t conv = KCP_CONV; // 这里可以设置协议的会话编号
-    char buf[4096] = {0};
+    char buf[1*1024*1024] = {0};
     int n, ret;
     int pyload_cnt = 0, kcp_raw_cnt = 0, pyload_tol_cnt = 0, index = 0;
     client_len = sizeof(client_addr);
     
-    _LOG(_LOG_INFO, "test server\n");
+    _LOG(_LOG_INFO, "test server");
     // 创建 UDP 套接字并绑定到指定端口
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
@@ -83,6 +84,7 @@ int main()
 
     // 将 KCP 协议控制块设为快速模式，以提高传输速度
     ikcp_nodelay(kcp, 1, 10, 2, 1);
+    
 
     while (1) 
     {
@@ -92,26 +94,55 @@ int main()
         if (len <= 0) {
             continue;
         } else {
-            _LOG(_LOG_DEBUG, "len:%d index:%02d\n", len, index++);
             kcp_raw_cnt += len;
             ret = ikcp_input(kcp, buf, len);
+            // _LOG(_LOG_DEBUG, "len:%d index:%02d ret:%d", len, index++, ret);
             while(1)
             {
                 n = ikcp_recv(kcp, buf, sizeof(buf));
+                uint16_t cmd = buf[1] << 8 | buf[0];
+                uint8_t *pdat = buf + 2;
                 if (n < 0) {
-                    _LOG(_LOG_INFO, "n:%d ret:%d kcp_raw_cnt:%5d pyload_cnt:%4d pyload_tol_cnt:%6d\n", n, ret, kcp_raw_cnt, pyload_cnt, pyload_tol_cnt);
-                    pyload_cnt = 0;
-                    kcp_raw_cnt = 0;
+                    // _LOG(_LOG_INFO, "n:%d ret:%d kcp_raw_cnt:%5d pyload_cnt:%4d pyload_tol_cnt:%6d", n, ret, kcp_raw_cnt, pyload_cnt, pyload_tol_cnt);
+                    // pyload_cnt = 0;
+                    // kcp_raw_cnt = 0;
                     break;
                 } else {
-                    pyload_cnt += n;
-                    pyload_tol_cnt += n;
+                    switch (cmd)
+                    {
+                    case 0x0001:
+                    case 0x0002:
+                        _LOG(_LOG_INFO, "filename:[%s]", pdat);
+                        
+                        if ((file = fopen(pdat, "w+")) == NULL)
+                        {
+                            _LOG(_LOG_ERR, "fopen failed %s", pdat);
+                            goto err;
+                        }
+                        
+                        break;
+                    case 0x0003:
+                        // _LOG(_LOG_INFO, "ikcp_recv %d bytes", n);
+                        printf("#");
+                        fflush(stdout);
+                        fwrite(pdat, 1, n-2, file);
+                        break;
+                    case 0x0004:
+                        _LOG(_LOG_INFO, "over filename:[%s]", pdat);
+                        fclose(file);
+                        break;
+                    default:
+                        break;
+                    }
+                    // pyload_cnt += n;
+                    // pyload_tol_cnt += n;
                 }
             }
             
         }
     }
 
+err:
     ikcp_release(kcp);
     close(sockfd);
 

@@ -17,7 +17,7 @@ typedef enum  {
 }LOG_LEVEL;
 
 #define UP_LOG_ENABLE   /* 日志模块总开关，注释掉将关闭日志输出 */
-#define UP_LOG_LEVEL    _LOG_ALL /* 日志输出控制，小于等于UP_LOG_LEVEL等级的日志被输出 */
+#define UP_LOG_LEVEL    _LOG_INFO /* 日志输出控制，小于等于UP_LOG_LEVEL等级的日志被输出 */
 #define NEWLINE_SIGN    "\n"
 
 FILE *log_fd;
@@ -97,6 +97,5 @@ char* get_stime(void)
             }\
          } \
     } while (0)
-
 
 #endif
